@@ -1,0 +1,59 @@
+name: Deploy Olly’s Outgoings to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm test
+      - name: Set optional public push configuration
+        env:
+          PUSH_ENDPOINT: ${{ vars.OUTGOINGS_PUSH_ENDPOINT }}
+          VAPID_PUBLIC: ${{ vars.OUTGOINGS_VAPID_PUBLIC }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const endpoint = process.env.PUSH_ENDPOINT || '';
+          const publicKey = process.env.VAPID_PUBLIC || '';
+          if (Boolean(endpoint) !== Boolean(publicKey)) throw new Error('Set both optional push variables or clear both.');
+          if (endpoint) {
+            const url = new URL(endpoint);
+            if (url.protocol !== 'https:' || !url.hostname.endsWith('.supabase.co') ||
+                url.pathname !== '/functions/v1/outgoings-push' || url.port || url.hash || url.search ||
+                url.username || url.password || !/^B[A-Za-z0-9_-]{86}$/.test(publicKey)) {
+              throw new Error('Check the Supabase URL and public VAPID key.');
+            }
+          }
+          writeFileSync('dist/push-config.js', 'export const pushConfig = ' + JSON.stringify({ endpoint, publicKey }) + ';\n');
+          const cacheVersion = process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
+          const worker = readFileSync('dist/sw.js', 'utf8');
+          writeFileSync('dist/sw.js', worker.replace("cachePrefix + 'v2'", 'cachePrefix + ' + JSON.stringify(cacheVersion)));
+          NODE
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+      - uses: actions/deploy-pages@v4
+        id: deployment

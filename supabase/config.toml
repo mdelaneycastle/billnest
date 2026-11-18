@@ -1,0 +1,4 @@
+project_id = "ollys-outgoings"
+
+[functions.outgoings-push]
+verify_jwt = false
