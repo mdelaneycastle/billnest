@@ -1,8 +1,13 @@
 import {
   addDays, calendarFile, calendarPlan, categories, daysBetween, events, examples, formatDate, frequencies, leadOptions,
-  limits, money, nextPayment, parseAmount, parseDate, shortDate, today, totals, validateBackup
+  limits, money, nextPayment, parseAmount, parseDate, shortDate, today, totals
 } from './model.js';
-import { readState, changeState } from './storage.js';
+import {
+  readState, changeState, saveAttachment, removeAttachment, readAttachment, backupSnapshot, importBackup
+} from './storage.js';
+import {
+  attachmentBytes, attachmentLimits, createBackup, fileLabel, fileSize, prepareAttachment, readBackup
+} from './attachments.js';
 import { disablePush, enablePush, preparePush, pushConfigured, pushProblem, syncPush, testPush } from './push.js';
 
 const paths = {
@@ -43,6 +48,7 @@ const $ = selector => document.querySelector(selector);
 const main = $('#main');
 const dialog = $('#dialog');
 const backupInput = $('#backup-input');
+const attachmentInput = $('#attachment-input');
 const nav = $('#nav');
 const tabs = {
   home: { title: 'Overview', mobile: 'Home', icon: 'grid' },
@@ -62,6 +68,9 @@ let toastTimer;
 let installPrompt;
 let dialogRecord;
 let calendarDraft;
+let documentPreview;
+let pendingRemoval;
+let attachmentRecordId;
 let restoreFocus;
 let pushQueue = Promise.resolve();
 let pushSetupContext;
@@ -188,7 +197,7 @@ function settingsPanel() {
     '<p>Open Olly’s Outgoings from your Home Screen and use it offline after the first online visit.</p>' +
     button(installed() ? 'View install help' : 'Install app', 'install', 'subtle compact', 'phone') + '</section>' +
     '<section class="panel settings-card">' + categoryIcon('insurance') + '<h2>Back up your bills</h2>' +
-    '<p>A backup contains your private details in plain text. Keep it somewhere safe. If you lose this phone or clear its site data, you’ll need it to restore your bills.</p>' +
+    '<p>A backup contains your private bill details and documents in a readable file. Keep it somewhere safe. If you lose this phone or clear its site data, you’ll need it to restore your bills.</p>' +
     '<div class="actions">' + button('Download backup', 'export', 'subtle compact', 'download') +
     button('Import backup', 'import', 'quiet compact') + '</div></section>' +
     '<section class="panel settings-card">' + categoryIcon('utilities') + '<h2>Your data</h2>' +
@@ -229,7 +238,13 @@ function render() {
   }
 }
 
+function releaseDocumentPreview() {
+  if (documentPreview) URL.revokeObjectURL(documentPreview.url);
+  documentPreview = null;
+}
+
 function openDialog(title, body, footer = '', { form = false } = {}) {
+  releaseDocumentPreview();
   const content = '<header class="dialog-header"><h2 id="dialog-title">' + title +
     '</h2><button class="icon-button" type="button" data-action="close" aria-label="Close">' + icon('close') + '</button></header>' +
     '<div class="dialog-body">' + body + '</div>' +
@@ -267,7 +282,51 @@ function detail(record) {
     '</span></div>' + (sample ? '<p class="message">Example bill.</p>' : '') +
     '<div class="detail-dates">' + (dates || '<div class="detail-date"><small>No payment or renewal dates added.</small></div>') +
     '</div><dl class="detail-fields"><div><dt>Reminder lead time</dt><dd>' + leadOptions.get(record.lead) +
-    '</dd></div>' + fields + '</dl>', footer);
+    '</dd></div>' + fields + '</dl>' + (sample ? '' : documentsSection(record)), footer);
+}
+
+function documentsSection(record) {
+  const files = record.attachments ?? [];
+  const used = fileSize(attachmentBytes(state.records));
+  const rows = files.map(file => '<li class="document-row"><button type="button" class="document-open" data-action="view-document" data-file-id="' +
+    file.id + '">' + icon('folder') + '<span><strong>' + escape(file.name) + '</strong><small>' +
+    fileLabel(file.type) + ' · ' + fileSize(file.size) + '</small></span></button>' +
+    '<button class="icon-button" type="button" data-action="remove-document" data-file-id="' + file.id +
+    '" aria-label="Remove ' + escape(file.name) + '">' + icon('close') + '</button></li>').join('');
+  return '<section class="documents-section" id="documents-section" aria-labelledby="documents-title">' +
+    '<div class="section-heading"><h3 id="documents-title">Documents</h3>' +
+    button('Add document', 'attach', 'subtle compact', 'plus', files.length >= attachmentLimits.perBill ? 'disabled' : '') +
+    '</div><p class="document-help">PDFs and photos · up to 5 MB each · ' + files.length + '/10 files</p>' +
+    '<p id="document-error" class="message error" role="alert" hidden></p>' +
+    (rows ? '<ul class="document-list">' + rows + '</ul>' :
+      '<p class="document-empty">Keep a policy, bill or screenshot here.</p>') +
+    '<p class="document-help">Saved on this device. Included in backups. ' + used + ' of 50 MB used.</p></section>';
+}
+
+function documentError(message) {
+  const error = $('#document-error');
+  if (!error) return toast(message);
+  error.textContent = message;
+  error.hidden = false;
+}
+
+async function viewDocument(record, fileId) {
+  const metadata = record.attachments?.find(file => file.id === fileId);
+  if (!metadata) throw new Error('Document unavailable');
+  const blob = await readAttachment(fileId);
+  if (!blob) throw new Error('Document unavailable');
+  if (!dialog.open || dialogRecord?.id !== record.id || !$('#documents-section')) return;
+  const url = URL.createObjectURL(blob);
+  const file = new File([blob], metadata.name, { type: metadata.type });
+  const share = navigator.canShare?.({ files: [file] });
+  const content = metadata.type === 'application/pdf'
+    ? '<iframe class="document-pdf" src="' + url + '" title="PDF document preview" sandbox=""></iframe>'
+    : '<img class="document-image" src="' + url + '" alt="Preview of ' + escape(metadata.name) + '">';
+  openDialog(escape(metadata.name),
+    content + '<p class="document-help">If the preview is unavailable, download or share the file to open it on your phone.</p>',
+    button('Back to bill', 'back-detail', 'quiet') + button('Download', 'download-document', 'subtle', 'download') +
+    (share ? button('Share', 'share-document', 'primary') : ''));
+  documentPreview = { url, blob, metadata };
 }
 
 const field = (label, control, full = false) => '<label class="field' + (full ? ' full' : '') + '"><span>' + label + '</span>' + control + '</label>';
@@ -322,7 +381,11 @@ function findEditable(previous, viewed) {
 }
 
 async function mutate(change, { refresh = true } = {}) {
-  state = await changeState(change);
+  savedState(await changeState(change), refresh);
+}
+
+function savedState(next, refresh = true) {
+  state = next;
   channel?.postMessage('changed');
   if (refresh) render();
   syncReminders();
@@ -351,7 +414,7 @@ async function saveBill(form) {
       if (!viewed && previous.records.length >= limits.records) throw new Error('This device already has 500 bills.');
       const record = { ...values, id, amount, payment, renewal, lead: Number(values.lead),
         anchorDay: payment === viewed?.payment ? viewed.anchorDay : payment ? Number(payment.slice(-2)) : 1,
-        archived: viewed?.archived ?? false, revision: (viewed?.revision ?? 0) + 1 };
+        attachments: viewed?.attachments ?? [], archived: viewed?.archived ?? false, revision: (viewed?.revision ?? 0) + 1 };
       const records = viewed ? previous.records.map(item => item.id === id ? record : item) : [record, ...previous.records];
       return { ...previous, records, showExamples: false };
     });
@@ -537,9 +600,60 @@ document.addEventListener('click', async event => {
     $('#bill-search')?.focus();
     return;
   }
+  if (action === 'attach') {
+    attachmentRecordId = dialogRecord.id;
+    return attachmentInput.click();
+  }
+  if (action === 'view-document') {
+    target.disabled = true;
+    try { await viewDocument(dialogRecord, target.dataset.fileId); }
+    catch { documentError('This document could not be opened. Try again.'); }
+    finally { target.disabled = false; }
+    return;
+  }
+  if (action === 'download-document') return download(documentPreview.blob, documentPreview.metadata.name);
+  if (action === 'share-document') {
+    const preview = documentPreview;
+    try {
+      await navigator.share({ files: [new File([preview.blob], preview.metadata.name, { type: preview.metadata.type })] });
+    } catch (error) {
+      if (error.name !== 'AbortError') toast('Sharing is unavailable. Download the document instead.');
+    }
+    return;
+  }
+  if (action === 'remove-document') {
+    const record = dialogRecord;
+    const metadata = record.attachments.find(file => file.id === target.dataset.fileId);
+    pendingRemoval = { recordId: record.id, fileId: metadata.id };
+    return openDialog('Remove document?',
+      '<p>Remove <strong>' + escape(metadata.name) + '</strong> from this bill and this device? Keep a backup if you need it later.</p>',
+      button('Keep document', 'back-detail', 'quiet') + button('Remove document', 'confirm-remove-document', 'danger'));
+  }
+  if (action === 'confirm-remove-document') {
+    target.disabled = true;
+    try {
+      const { recordId, fileId } = pendingRemoval;
+      savedState(await removeAttachment(recordId, fileId));
+      const record = recordFor(recordId);
+      if (record) detail(record);
+      toast('Document removed.');
+    } catch (error) { toast(writeError(error)); }
+    finally { target.disabled = false; }
+    return;
+  }
   if (action === 'export') {
-    const backup = { app: 'billnest', version: 1, records: state.records.map(({ revision, ...record }) => record) };
-    download(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), 'ollys-outgoings-' + today() + '.json');
+    target.disabled = true;
+    target.textContent = 'Preparing backup…';
+    try {
+      const snapshot = await backupSnapshot();
+      const backup = await createBackup(snapshot.state, snapshot.files);
+      download(new Blob([JSON.stringify(backup)], { type: 'application/json' }), 'ollys-outgoings-' + today() + '.json');
+      toast('Backup ready, including your documents.');
+    } catch (error) { toast(writeError(error)); }
+    finally {
+      target.disabled = false;
+      target.innerHTML = icon('download') + 'Download backup';
+    }
     return;
   }
   if (action === 'import') return backupInput.click();
@@ -603,28 +717,51 @@ dialog.addEventListener('submit', event => {
   event.preventDefault();
   if (event.target.id === 'record-form') void saveBill(event.target);
 });
-dialog.addEventListener('close', focusAfterClose);
+dialog.addEventListener('close', () => {
+  releaseDocumentPreview();
+  focusAfterClose();
+});
 backupInput.addEventListener('change', async () => {
   const file = backupInput.files?.[0];
   backupInput.value = '';
   if (!file) return;
   try {
-    if (file.size > 5000000) throw new Error('Choose an Outgoings backup under 5 MB.');
+    if (file.size > attachmentLimits.backup) throw new Error('Choose an Outgoings backup up to 75 MB.');
     let json;
     try { json = JSON.parse(await file.text()); }
     catch { throw new Error('This file is not a readable Outgoings backup.'); }
-    const incoming = validateBackup(json);
-    let count = 0;
-    await mutate(previous => {
-      const existing = new Set(previous.records.map(record => record.id));
-      const newRecords = incoming.filter(record => !existing.has(record.id));
-      count = newRecords.length;
-      if (previous.records.length + count > limits.records) throw new Error('Import would exceed the 500-bill limit.');
-      return { ...previous, showExamples: false, records: [...newRecords, ...previous.records] };
-    });
-    toast(count + (count === 1 ? ' bill imported.' : ' bills imported.') +
-      (incoming.length > count ? ' Existing bills kept.' : ''));
+    const incoming = await readBackup(json);
+    const imported = await importBackup(incoming);
+    savedState(imported.state);
+    toast(imported.count + (imported.count === 1 ? ' bill imported with its documents.' : ' bills imported with their documents.') +
+      (imported.skipped ? ' Existing bills and their documents kept.' : ''));
   } catch (error) { toast(writeError(error)); }
+});
+
+attachmentInput.addEventListener('change', async () => {
+  const file = attachmentInput.files?.[0];
+  const recordId = attachmentRecordId;
+  attachmentInput.value = '';
+  if (!file) return;
+  const attachButton = dialog.querySelector('[data-action="attach"]');
+  if (attachButton) {
+    attachButton.disabled = true;
+    attachButton.textContent = 'Saving document…';
+  }
+  try {
+    const prepared = await prepareAttachment(file);
+    savedState(await saveAttachment(recordId, prepared));
+    if (dialog.open && dialogRecord?.id === recordId && $('#documents-section')) detail(recordFor(recordId));
+    toast('Document saved on this device.');
+  } catch (error) {
+    if (dialog.open && dialogRecord?.id === recordId) documentError(writeError(error));
+    else toast(writeError(error));
+  } finally {
+    if (attachButton?.isConnected) {
+      attachButton.disabled = false;
+      attachButton.textContent = 'Add document';
+    }
+  }
 });
 
 async function refresh() {

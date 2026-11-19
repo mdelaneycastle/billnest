@@ -1,8 +1,8 @@
 const scope = self.registration.scope;
 const cachePrefix = 'outgoings-shell:' + scope + ':';
-const cacheName = cachePrefix + 'v2';
+const cacheName = cachePrefix + 'v3';
 const shell = [
-  'index.html', 'styles.css', 'app.js', 'model.js', 'storage.js', 'push.js', 'push-config.js',
+  'index.html', 'styles.css', 'app.js', 'model.js', 'storage.js', 'attachments.js', 'push.js', 'push-config.js',
   'manifest.webmanifest', 'olly.webp', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/maskable-512.png', 'icons/apple-touch-icon.png'
 ];

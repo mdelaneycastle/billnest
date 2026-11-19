@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#173c32">
   <meta name="description" content="Olly’s household bills, policies and due dates in one place.">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://*.supabase.co; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; frame-src blob:; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://*.supabase.co; base-uri 'none'; form-action 'none'; object-src 'none'">
   <title>Olly’s Outgoings</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -44,6 +44,7 @@
   </div>
   <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="attachment-input" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,application/pdf,image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" hidden>
   <input type="file" id="backup-input" accept=".json,application/json" hidden>
 </body>
 </html>

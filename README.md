@@ -10,7 +10,7 @@ Use Node.js 20 or later. From the project folder run:
 npm start
 ```
 
-Open [the local preview](http://localhost:4173/billnest/). Run `npm test` for the calculation, date, backup and calendar tests. The preview binds to this computer. Use the HTTPS Pages address to try it on an iPhone.
+Open [the local preview](http://localhost:4173/billnest/). Run `npm ci` once, then `npm test` for the calculation, date, attachment, backup and calendar tests. The preview binds to this computer. Use the HTTPS Pages address to try it on an iPhone.
 
 ## Put it on GitHub Pages
 
@@ -36,12 +36,12 @@ The contents of `dist/`, including the supplied portrait, are public site assets
 
 The monthly figure is annualized active spending divided by 12. Weekly bills use 52 payments per year, quarterly use 4, monthly use 12 and annual use 1. GBP calculations use integer pence. **Upcoming** shows the next recorded dates and flags overdue ones. **Mark paid** advances the payment date one period, clamping short months and preserving the intended billing day. Edit renewal dates when terms change. Archived records are searchable and can be restored.
 
-The app has no sign-in, tracking, analytics or external assets. Its IndexedDB records have no app-level encryption and are accessible to anyone with access to the same browser profile. Protect the phone with its passcode. Data can be lost if the phone is lost or site storage is cleared. **Settings → Download backup** exports a plain-text JSON file with all real records, including archived ones. Store it privately. Import validates the full file and merges by record ID, keeping existing records on a match. Data is tied to the browser profile and site origin. Use backups to move between the local preview, a new URL or another device.
+The app has no sign-in, tracking, analytics or external assets. Its IndexedDB records have no app-level encryption and are accessible to anyone with access to the same browser profile. Protect the phone with its passcode. Data can be lost if the phone is lost or site storage is cleared. **Settings → Download backup** exports a readable JSON file with all real records and attached documents, including archived bills. Store it privately. Import accepts both older bill-only backups and the current backup format. It validates the full file before saving and merges by record ID, keeping the existing bill and its documents on a match. Data is tied to the browser profile and site origin. Use backups to move between the local preview, a new URL or another device.
 
 GitHub project sites under the same `mdelaneycastle.github.io` hostname share a browser origin. If you later host other sites there with untrusted scripts, use a dedicated custom hostname for Outgoings and move records with a backup. Anyone with access to change the hosted app can change the code that the browser runs.
 
 ## MVP boundaries
 
-- **Documents.** Attachments are deferred. References, contacts and notes are supported. Secure attachments need encrypted storage and a backup/recovery design.
+- **Documents.** Open a saved bill and choose **Documents → Add document**. PDFs, JPEG, PNG, WebP, GIF and HEIC/HEIF photos are supported, up to 5 MB each, 10 per bill and 50 MB in total. Files stay in IndexedDB, work offline and are included in backups. Use **Download** or **Share** if the phone cannot preview a format. Removal asks for confirmation. Documents have the same device-access protection as bill records and no app-level encryption.
 - **Device sync.** The current storage adapter and versioned backup format provide a migration point. For later sync, add authenticated per-household access, row-level security, encrypted private fields and conflict resolution for the local records. The optional push service has a separate schema and does not sync bills.
 - **Reminders.** Calendar alerts rely on the settings in the chosen Calendar app. Direct alerts rely on the hosting service, a live subscription, browser and phone settings, and a connection. Test on the actual handset before relying on them.

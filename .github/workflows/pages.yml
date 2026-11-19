@@ -27,6 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: npm ci
       - run: npm test
       - name: Set optional public push configuration
         env:
@@ -49,7 +50,7 @@ jobs:
           writeFileSync('dist/push-config.js', 'export const pushConfig = ' + JSON.stringify({ endpoint, publicKey }) + ';\n');
           const cacheVersion = process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
           const worker = readFileSync('dist/sw.js', 'utf8');
-          writeFileSync('dist/sw.js', worker.replace("cachePrefix + 'v2'", 'cachePrefix + ' + JSON.stringify(cacheVersion)));
+          writeFileSync('dist/sw.js', worker.replace("cachePrefix + 'v3'", 'cachePrefix + ' + JSON.stringify(cacheVersion)));
           NODE
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
